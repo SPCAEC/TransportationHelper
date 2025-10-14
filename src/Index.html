@@ -65,19 +65,36 @@
     // ─── Hub Link ────────────────────────────────────────────────
     google.script.run
       .withSuccessHandler(link => {
-        if (link) hubLink.href = link;
+        if (link) {
+          hubLink.addEventListener('click', e => {
+            e.preventDefault();
+            window.open(link, '_top'); // open in same tab (use '_blank' for new tab)
+          });
+          hubLink.style.pointerEvents = 'auto';
+          hubLink.style.opacity = 1;
+        } else {
+          hubLink.style.pointerEvents = 'none';
+          hubLink.style.opacity = 0.6;
+        }
       })
       .getMainHubLink();
 
     // ─── Date Selection Logic ────────────────────────────────────
     function chooseDate(choice) {
-      const today = new Date();
+      const now = new Date();
+      const tzOffsetMs = now.getTimezoneOffset() * 60000; // convert offset to ms
+      const localNow = new Date(now.getTime() - tzOffsetMs); // convert to local date
+      let selectedLocal;
+
       if (choice === 'today') {
-        selectedDate = today.toISOString().split('T')[0];
+        selectedLocal = localNow;
       } else if (choice === 'tomorrow') {
-        const tomorrow = new Date(today.getTime() + 86400000);
-        selectedDate = tomorrow.toISOString().split('T')[0];
+        selectedLocal = new Date(localNow.getTime() + 86400000);
       }
+
+      selectedDate = selectedLocal.toISOString().split('T')[0];
+      console.log('Chosen local date:', selectedDate);
+
       $('#dateSelector').style.display = 'none';
       createBtn.disabled = false;
       loadAppointments(selectedDate);
