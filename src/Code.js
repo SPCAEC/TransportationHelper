@@ -148,12 +148,16 @@ function getTransportAppointments(targetDateStr) {
 
     // Date filter logic
     let include = false;
-    if (targetDate) {
-      const dateStr = Utilities.formatDate(dateObj, tz, 'yyyyMMdd');
-      const targetStr = Utilities.formatDate(targetDate, tz, 'yyyyMMdd');
-      include = (dateStr === targetStr);
+    if (targetDateStr) {
+      // force targetDateStr (YYYY-MM-DD) into same TZ context
+      const [y, m, d] = targetDateStr.split('-').map(n => parseInt(n, 10));
+      const target = new Date(y, m - 1, d);
+      const sheetDate = Utilities.formatDate(dateObj, CFG.TZ, 'yyyyMMdd');
+      const selectedDate = Utilities.formatDate(target, CFG.TZ, 'yyyyMMdd');
+      include = (sheetDate === selectedDate);
     } else {
       include = isTodayOrTomorrow_(dateObj);
+    }
     }
     if (!include) return;
 

@@ -107,7 +107,20 @@
     function pickCustom() {
       const val = $('#customDate').value;
       if (!val) return alert('Please pick a date');
-      selectedDate = val;
+      // ensure it's exactly YYYY-MM-DD format
+      const parts = val.split('-');
+      if (parts.length === 3) {
+        const [y, m, d] = parts.map(n => parseInt(n, 10));
+        const safeDate = new Date(y, m - 1, d);
+        // normalize to local YYYY-MM-DD
+        const tzOffsetMs = safeDate.getTimezoneOffset() * 60000;
+        const localDate = new Date(safeDate.getTime() + tzOffsetMs);
+        selectedDate = localDate.toISOString().split('T')[0];
+      } else {
+        selectedDate = val;
+      }
+
+      console.log('Chosen custom date:', selectedDate);
       $('#dateSelector').style.display = 'none';
       createBtn.disabled = false;
       loadAppointments(selectedDate);
