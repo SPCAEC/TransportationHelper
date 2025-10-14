@@ -7,6 +7,7 @@
 </head>
 <body>
   <div class="app">
+    <!-- Navigation -->
     <a href="#" id="navLink" class="back">&larr; Back to Service Hub</a>
     <h1>Transportation Helper</h1>
 
@@ -39,6 +40,7 @@
   </div>
 
   <script>
+    // ─── Cached elements ───────────────────────────────────────────────
     const $ = s => document.querySelector(s);
     const content = $('#content');
     const spinner = $('#spinner');
@@ -48,7 +50,7 @@
     let selectedDate = null;
     let mainHubUrl = '';
 
-    // ─── UI Helpers ──────────────────────────────────────────────
+    // ─── UI Helpers ───────────────────────────────────────────────────
     function setMsg(text, type) {
       message.textContent = text;
       message.className = 'msg ' + (type || '');
@@ -63,7 +65,7 @@
       spinner.style.display = show ? 'block' : 'none';
     }
 
-    // ─── Hub Link (default behavior) ─────────────────────────────
+    // ─── Hub Link ─────────────────────────────────────────────────────
     google.script.run
       .withSuccessHandler(link => {
         mainHubUrl = link || '';
@@ -74,7 +76,7 @@
       })
       .getMainHubLink();
 
-    // ─── Show Home Screen ────────────────────────────────────────
+    // ─── Home Screen logic ────────────────────────────────────────────
     function showHome() {
       $('#dateSelector').style.display = 'block';
       content.innerHTML = '';
@@ -87,23 +89,19 @@
       };
     }
 
-    // ─── Date Selection Logic ────────────────────────────────────
+    // ─── Date selection logic ─────────────────────────────────────────
     function chooseDate(choice) {
       const now = new Date();
       const tzOffsetMs = now.getTimezoneOffset() * 60000;
       const localNow = new Date(now.getTime() + tzOffsetMs);
       let selectedLocal;
+
       if (choice === 'today') selectedLocal = localNow;
       else if (choice === 'tomorrow') selectedLocal = new Date(localNow.getTime() + 86400000);
 
       selectedDate = selectedLocal.toISOString().split('T')[0];
-      console.log('Chosen local date:', selectedDate);
-
-      $('#dateSelector').style.display = 'none';
-      createBtn.disabled = false;
-      navLink.textContent = '← Back';
-      navLink.onclick = e => { e.preventDefault(); showHome(); };
-      loadAppointments(selectedDate);
+      console.log('Chosen date:', selectedDate);
+      showAppointmentsView();
     }
 
     function showCalendar() {
@@ -123,6 +121,11 @@
       } else selectedDate = val;
 
       console.log('Chosen custom date:', selectedDate);
+      showAppointmentsView();
+    }
+
+    // ─── View loader ──────────────────────────────────────────────────
+    function showAppointmentsView() {
       $('#dateSelector').style.display = 'none';
       createBtn.disabled = false;
       navLink.textContent = '← Back';
@@ -130,14 +133,14 @@
       loadAppointments(selectedDate);
     }
 
-    // ─── Load Appointments ───────────────────────────────────────
+    // ─── Appointment loader ───────────────────────────────────────────
     function loadAppointments(dateStr) {
       showSpinner(true);
       clearMsg();
       google.script.run
         .withSuccessHandler(appts => {
-          console.log('Appointments from backend:', appts);
           showSpinner(false);
+          console.log(`Appointments for ${dateStr}:`, appts);
           renderAppointments(appts);
         })
         .withFailureHandler(err => {
@@ -147,7 +150,7 @@
         .getTransportAppointments(dateStr);
     }
 
-    // ─── Render Cards ────────────────────────────────────────────
+    // ─── Render appointments ──────────────────────────────────────────
     function esc(str) {
       return (str || '').replace(/[&<>"']/g, m => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -157,7 +160,7 @@
     function renderAppointments(appts) {
       content.innerHTML = '';
       if (!appts || !appts.length) {
-        content.innerHTML = '<p style="text-align:center;">No transport appointments found for this date.</p>';
+        content.innerHTML = `<p style="text-align:center;">No transport appointments found for ${selectedDate}.</p>`;
         return;
       }
 
@@ -178,12 +181,14 @@
       });
     }
 
-    // ─── Create Transportation Contracts ─────────────────────────
+    // ─── Contract creation ────────────────────────────────────────────
     createBtn.addEventListener('click', () => {
+      if (!selectedDate) return setMsg('Please select a date first.', 'error');
       clearMsg();
       showSpinner(true);
       createBtn.disabled = true;
       createBtn.textContent = 'Creating...';
+
       google.script.run
         .withSuccessHandler(res => {
           showSpinner(false);
@@ -208,14 +213,15 @@
           createBtn.textContent = 'Create Transportation Contracts';
           setMsg('Error: ' + err.message, 'error');
         })
-        .createTransportContracts();
+        // ⬇️ Pass selected date directly to backend
+        .createTransportContracts(selectedDate);
     });
 
-    // ─── Init ────────────────────────────────────────────────────
+    // ─── Init ─────────────────────────────────────────────────────────
     window.addEventListener('load', () => {
       showSpinner(false);
       clearMsg();
-      $('#dateSelector').style.display = 'block';
+      showHome();
     });
   </script>
 </body>
