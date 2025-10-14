@@ -277,11 +277,14 @@ function replaceInPresentation_(presentation, map) {
   Object.keys(map).forEach(needle => {
     const value = map[needle];
     slides.forEach(slide => {
-      try { slide.replaceAllText(needle, value); }
-      catch (e) { Logger.log('replaceAllText error on %s → %s', needle, e); }
+      try {
+        slide.replaceAllText(needle, value);
+      } catch (e) {
+        Logger.log('replaceAllText error on %s → %s', needle, e);
+      }
     });
   });
-  SlidesApp.flush();
+  // Slides flush automatically — no manual flush needed
 }
 
 /** Merge PDFs via Render service */
