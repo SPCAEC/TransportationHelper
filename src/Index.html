@@ -42,7 +42,10 @@
       m.className = 'msg ' + (type || '');
       m.style.display = 'block';
     }
-    const spin = show => $('#spinner').style.display = show ? 'block' : 'none';
+    function spin(show) {
+      const el = document.querySelector('#spinner');
+      if (el) el.style.display = show ? 'block' : 'none';
+    }
 
     google.script.run.withSuccessHandler(link => {
       hubLink = link || '';
