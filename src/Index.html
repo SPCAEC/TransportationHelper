@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Transportation Helper</title>
+  <?!= HtmlService.createHtmlOutputFromFile('css.shared').getContent(); ?>
+</head>
+<body>
+  <div class="app">
+    <a href="#" id="hubLink" class="back">&larr; Back to Service Hub</a>
+    <h1>Transportation Helper</h1>
+
+    <!-- ─── Date Selector ─────────────────────────────────────────── -->
+    <div id="dateSelector" class="card" style="text-align:center;">
+      <h3>Select Date</h3>
+      <div class="row" style="display:flex; gap:0.5rem; justify-content:center; flex-wrap:wrap;">
+        <button class="btn secondary" onclick="chooseDate('today')">Today</button>
+        <button class="btn secondary" onclick="chooseDate('tomorrow')">Tomorrow</button>
+        <button class="btn secondary" onclick="showCalendar()">Choose Date...</button>
+      </div>
+      <div id="calendarContainer" style="margin-top:1rem; display:none;">
+        <input type="date" id="customDate" style="max-width:200px;">
+        <button class="btn" onclick="pickCustom()">Go</button>
+      </div>
+    </div>
+
+    <!-- ─── Content Area ───────────────────────────────────────────── -->
+    <div id="content">
+      <div class="spinner" id="spinner" style="display:none;"></div>
+    </div>
+
+    <!-- ─── Actions ───────────────────────────────────────────────── -->
+    <div class="actions">
+      <button id="createBtn" class="btn" disabled>Create Transportation Contracts</button>
+    </div>
+
+    <!-- ─── Messages ──────────────────────────────────────────────── -->
+    <div id="message" class="msg" style="display:none;"></div>
+  </div>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const content = $('#content');
+    const spinner = $('#spinner');
+    const message = $('#message');
+    const createBtn = $('#createBtn');
+    const hubLink = $('#hubLink');
+    let selectedDate = null;
+
+    // ─── UI Helpers ──────────────────────────────────────────────
+    function setMsg(text, type) {
+      message.textContent = text;
+      message.className = 'msg ' + (type || '');
+      message.style.display = 'block';
+    }
+    function clearMsg() {
+      message.style.display = 'none';
+      message.textContent = '';
+      message.className = 'msg';
+    }
+    function showSpinner(show) {
+      spinner.style.display = show ? 'block' : 'none';
+    }
+
+    // ─── Hub Link ────────────────────────────────────────────────
+    google.script.run
+      .withSuccessHandler(link => {
+        if (link) hubLink.href = link;
+      })
+      .getMainHubLink();
+
+    // ─── Date Selection Logic ────────────────────────────────────
+    function chooseDate(choice) {
+      const today = new Date();
+      if (choice === 'today') {
+        selectedDate = today.toISOString().split('T')[0];
+      } else if (choice === 'tomorrow') {
+        const tomorrow = new Date(today.getTime() + 86400000);
+        selectedDate = tomorrow.toISOString().split('T')[0];
+      }
+      $('#dateSelector').style.display = 'none';
+      createBtn.disabled = false;
+      loadAppointments(selectedDate);
+    }
+
+    function showCalendar() {
+      $('#calendarContainer').style.display = 'block';
+    }
+
+    function pickCustom() {
+      const val = $('#customDate').value;
+      if (!val) return alert('Please pick a date');
+      selectedDate = val;
+      $('#dateSelector').style.display = 'none';
+      createBtn.disabled = false;
+      loadAppointments(selectedDate);
+    }
+
+    // ─── Load Appointments ───────────────────────────────────────
+    function loadAppointments(dateStr) {
+      showSpinner(true);
+      clearMsg();
+      google.script.run
+        .withSuccessHandler(appts => {
+          console.log('Appointments from backend:', appts);
+          showSpinner(false);
+          renderAppointments(appts);
+        })
+        .withFailureHandler(err => {
+          showSpinner(false);
+          setMsg('Error loading appointments: ' + err.message, 'error');
+        })
+        .getTransportAppointments(dateStr);
+    }
+
+    // ─── Render Cards ────────────────────────────────────────────
+    function esc(str) {
+      return (str || '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    function renderAppointments(appts) {
+      content.innerHTML = '';
+      if (!appts || !appts.length) {
+        content.innerHTML = '<p style="text-align:center;">No transport appointments found for this date.</p>';
+        return;
+      }
+
+      appts.forEach(a => {
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.innerHTML = `
+          <h2>${esc(a.petName || 'Unnamed Pet')}</h2>
+          <div class="field"><label>Client:</label><div>${esc(a.name)}</div></div>
+          <div class="field"><label>Address:</label><div>${esc(a.address1)}<br>${esc(a.address2)}</div></div>
+          <div class="phone-box">${esc(a.phone || '(no phone)')}</div>
+          <div class="field"><label>Pet Info:</label><div>${esc(a.speciesBreed || '')}</div></div>
+          <div class="field"><label>Details:</label><div>${esc(a.ageSexColor || '')}</div></div>
+          <div class="field"><label>Appointment Type:</label><div><em>${esc(a.apptType || '')}</em></div></div>
+          <div class="field"><label>Date:</label><div>${esc(a.date || '')}</div></div>
+        `;
+        content.appendChild(div);
+      });
+    }
+
+    // ─── Create Transportation Contracts ─────────────────────────
+    createBtn.addEventListener('click', () => {
+      clearMsg();
+      showSpinner(true);
+      createBtn.disabled = true;
+      createBtn.textContent = 'Creating...';
+      google.script.run
+        .withSuccessHandler(res => {
+          showSpinner(false);
+          createBtn.disabled = false;
+          createBtn.textContent = 'Create Transportation Contracts';
+
+          if (!res || !res.ok) {
+            setMsg(res?.message || 'Something went wrong.', 'error');
+            return;
+          }
+
+          if (res.merged && res.merged.url) {
+            const link = `<a href="${res.merged.url}" target="_blank">Download PDF</a>`;
+            setMsg(`Created ${res.count} contracts successfully. ${link}`, 'success');
+          } else {
+            setMsg('Created but merge file missing or unavailable.', 'error');
+          }
+        })
+        .withFailureHandler(err => {
+          showSpinner(false);
+          createBtn.disabled = false;
+          createBtn.textContent = 'Create Transportation Contracts';
+          setMsg('Error: ' + err.message, 'error');
+        })
+        .createTransportContracts();
+    });
+
+    // ─── Init ────────────────────────────────────────────────────
+    window.addEventListener('load', () => {
+      showSpinner(false);
+      clearMsg();
+      // User must pick date first
+      $('#dateSelector').style.display = 'block';
+    });
+  </script>
+</body>
+</html>
