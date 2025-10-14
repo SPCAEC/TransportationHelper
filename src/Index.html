@@ -7,62 +7,97 @@
 </head>
 <body>
   <div class="app">
-    <a href="#" id="navLink" class="back">&larr; Back to Service Hub</a>
+    <a href="#" id="hubLink" class="back">&larr; Back to Service Hub</a>
     <h1>Transportation Helper</h1>
 
+    <!-- ─── Date Selector ─────────────────────────────────────────── -->
     <div id="dateSelector" class="card" style="text-align:center;">
       <h3>Select Date</h3>
-      <div class="row" style="display:flex; gap:0.5rem; justify-content:center;">
+      <div class="row" style="display:flex; gap:0.5rem; justify-content:center; flex-wrap:wrap;">
         <button class="btn secondary" onclick="chooseDate('today')">Today</button>
         <button class="btn secondary" onclick="chooseDate('tomorrow')">Tomorrow</button>
         <button class="btn secondary" onclick="showCalendar()">Choose Date...</button>
       </div>
       <div id="calendarContainer" style="margin-top:1rem; display:none;">
-        <input type="date" id="customDate">
+        <input type="date" id="customDate" style="max-width:200px;">
         <button class="btn" onclick="pickCustom()">Go</button>
       </div>
     </div>
 
-    <div id="content"><div id="spinner" class="spinner" style="display:none;"></div></div>
+    <!-- ─── Content Area ───────────────────────────────────────────── -->
+    <div id="content">
+      <div class="spinner" id="spinner" style="display:none;"></div>
+    </div>
+
+    <!-- ─── Actions ───────────────────────────────────────────────── -->
     <div class="actions">
       <button id="createBtn" class="btn" disabled>Create Transportation Contracts</button>
     </div>
+
+    <!-- ─── Messages ──────────────────────────────────────────────── -->
     <div id="message" class="msg" style="display:none;"></div>
   </div>
 
   <script>
     const $ = s => document.querySelector(s);
+    const content = $('#content');
+    const spinner = $('#spinner');
+    const message = $('#message');
+    const createBtn = $('#createBtn');
+    const hubLink = $('#hubLink');
     let selectedDate = null;
-    let hubLink = '';
 
-    // Helpers
-    function msg(text, type) {
-      const m = $('#message');
-      m.textContent = text;
-      m.className = 'msg ' + (type || '');
-      m.style.display = 'block';
+    // ─── UI Helpers ──────────────────────────────────────────────
+    function setMsg(text, type) {
+      message.textContent = text;
+      message.className = 'msg ' + (type || '');
+      message.style.display = 'block';
     }
-    function spin(show) {
-      const el = document.querySelector('#spinner');
-      if (el) el.style.display = show ? 'block' : 'none';
+    function clearMsg() {
+      message.style.display = 'none';
+      message.textContent = '';
+      message.className = 'msg';
+    }
+    function showSpinner(show) {
+      spinner.style.display = show ? 'block' : 'none';
     }
 
-    google.script.run.withSuccessHandler(link => {
-      hubLink = link || '';
-      $('#navLink').onclick = e => {
-        e.preventDefault();
-        if (hubLink) window.open(hubLink, '_top');
-      };
-    }).getMainHubLink();
+    // ─── Hub Link ────────────────────────────────────────────────
+    google.script.run
+      .withSuccessHandler(link => {
+        if (link) {
+          hubLink.addEventListener('click', e => {
+            e.preventDefault();
+            window.open(link, '_top'); // open in same tab (use '_blank' for new tab)
+          });
+          hubLink.style.pointerEvents = 'auto';
+          hubLink.style.opacity = 1;
+        } else {
+          hubLink.style.pointerEvents = 'none';
+          hubLink.style.opacity = 0.6;
+        }
+      })
+      .getMainHubLink();
 
-    function chooseDate(which) {
+    // ─── Date Selection Logic ────────────────────────────────────
+    function chooseDate(choice) {
       const now = new Date();
-      const offset = now.getTimezoneOffset() * 60000;
-      const localNow = new Date(now.getTime() + offset);
-      let d = localNow;
-      if (which === 'tomorrow') d = new Date(localNow.getTime() + 86400000);
-      selectedDate = d.toISOString().split('T')[0];
-      load(selectedDate);
+      const tzOffsetMs = now.getTimezoneOffset() * 60000; // minutes → ms
+      const localNow = new Date(now.getTime() + tzOffsetMs); // ✅ ADD, not subtract
+      let selectedLocal;
+
+      if (choice === 'today') {
+        selectedLocal = localNow;
+      } else if (choice === 'tomorrow') {
+        selectedLocal = new Date(localNow.getTime() + 86400000);
+      }
+
+      selectedDate = selectedLocal.toISOString().split('T')[0];
+      console.log('Chosen local date:', selectedDate);
+
+      $('#dateSelector').style.display = 'none';
+      createBtn.disabled = false;
+      loadAppointments(selectedDate);
     }
 
     function showCalendar() {
@@ -71,70 +106,114 @@
 
     function pickCustom() {
       const val = $('#customDate').value;
-      if (!val) return alert('Pick a date');
-      selectedDate = val;
-      load(selectedDate);
+      if (!val) return alert('Please pick a date');
+      // ensure it's exactly YYYY-MM-DD format
+      const parts = val.split('-');
+      if (parts.length === 3) {
+        const [y, m, d] = parts.map(n => parseInt(n, 10));
+        const safeDate = new Date(y, m - 1, d);
+        // normalize to local YYYY-MM-DD
+        const tzOffsetMs = safeDate.getTimezoneOffset() * 60000;
+        const localDate = new Date(safeDate.getTime() + tzOffsetMs);
+        selectedDate = localDate.toISOString().split('T')[0];
+      } else {
+        selectedDate = val;
+      }
+
+      console.log('Chosen custom date:', selectedDate);
+      $('#dateSelector').style.display = 'none';
+      createBtn.disabled = false;
+      loadAppointments(selectedDate);
     }
 
-    function load(dateStr) {
-      spin(true);
-      $('#dateSelector').style.display = 'none';
-      $('#createBtn').disabled = false;
+    // ─── Load Appointments ───────────────────────────────────────
+    function loadAppointments(dateStr) {
+      showSpinner(true);
+      clearMsg();
       google.script.run
         .withSuccessHandler(appts => {
-          spin(false);
-          render(appts);
+          console.log('Appointments from backend:', appts);
+          showSpinner(false);
+          renderAppointments(appts);
         })
-        .withFailureHandler(e => {
-          spin(false);
-          msg('Error loading appointments: ' + e.message, 'error');
+        .withFailureHandler(err => {
+          showSpinner(false);
+          setMsg('Error loading appointments: ' + err.message, 'error');
         })
         .getTransportAppointments(dateStr);
     }
 
-    function render(appts) {
-      const c = $('#content');
-      c.innerHTML = '';
+    // ─── Render Cards ────────────────────────────────────────────
+    function esc(str) {
+      return (str || '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    function renderAppointments(appts) {
+      content.innerHTML = '';
       if (!appts || !appts.length) {
-        c.innerHTML = `<p style="text-align:center;">No transport appointments for ${selectedDate}.</p>`;
+        content.innerHTML = '<p style="text-align:center;">No transport appointments found for this date.</p>';
         return;
       }
+
       appts.forEach(a => {
         const div = document.createElement('div');
         div.className = 'card';
         div.innerHTML = `
-          <h2>${a.petName || 'Unnamed Pet'}</h2>
-          <div class="field"><label>Client:</label><div>${a.name}</div></div>
-          <div class="field"><label>Address:</label><div>${a.address1}<br>${a.address2}</div></div>
-          <div class="field"><label>Phone:</label><div>${a.phone}</div></div>
-          <div class="field"><label>Species / Breed:</label><div>${a.speciesBreed}</div></div>
-          <div class="field"><label>Details:</label><div>${a.ageSexColor}</div></div>
-          <div class="field"><label>Type:</label><div>${a.apptType}</div></div>
-          <div class="field"><label>Date:</label><div>${a.date}</div></div>
+          <h2>${esc(a.petName || 'Unnamed Pet')}</h2>
+          <div class="field"><label>Client:</label><div>${esc(a.name)}</div></div>
+          <div class="field"><label>Address:</label><div>${esc(a.address1)}<br>${esc(a.address2)}</div></div>
+          <div class="phone-box">${esc(a.phone || '(no phone)')}</div>
+          <div class="field"><label>Pet Info:</label><div>${esc(a.speciesBreed || '')}</div></div>
+          <div class="field"><label>Details:</label><div>${esc(a.ageSexColor || '')}</div></div>
+          <div class="field"><label>Appointment Type:</label><div><em>${esc(a.apptType || '')}</em></div></div>
+          <div class="field"><label>Date:</label><div>${esc(a.date || '')}</div></div>
         `;
-        c.appendChild(div);
+        content.appendChild(div);
       });
     }
 
-    $('#createBtn').onclick = () => {
-      if (!selectedDate) return msg('Select a date first.', 'error');
-      spin(true);
-      msg('');
-      $('#createBtn').disabled = true;
+    // ─── Create Transportation Contracts ─────────────────────────
+    createBtn.addEventListener('click', () => {
+      clearMsg();
+      showSpinner(true);
+      createBtn.disabled = true;
+      createBtn.textContent = 'Creating...';
       google.script.run
         .withSuccessHandler(res => {
-          spin(false);
-          $('#createBtn').disabled = false;
-          if (!res || !res.ok) return msg(res?.message || 'Failed to create.', 'error');
-          msg(`Created ${res.count} contracts. <a href="${res.merged.url}" target="_blank">Open PDF</a>`, 'success');
+          showSpinner(false);
+          createBtn.disabled = false;
+          createBtn.textContent = 'Create Transportation Contracts';
+
+          if (!res || !res.ok) {
+            setMsg(res?.message || 'Something went wrong.', 'error');
+            return;
+          }
+
+          if (res.merged && res.merged.url) {
+            const link = `<a href="${res.merged.url}" target="_blank">Download PDF</a>`;
+            setMsg(`Created ${res.count} contracts successfully. ${link}`, 'success');
+          } else {
+            setMsg('Created but merge file missing or unavailable.', 'error');
+          }
         })
-        .withFailureHandler(e => {
-          spin(false);
-          $('#createBtn').disabled = false;
-          msg('Error: ' + e.message, 'error');
+        .withFailureHandler(err => {
+          showSpinner(false);
+          createBtn.disabled = false;
+          createBtn.textContent = 'Create Transportation Contracts';
+          setMsg('Error: ' + err.message, 'error');
         })
-        .createTransportContracts(selectedDate);
-    };
+        .createTransportContracts();
+    });
+
+    // ─── Init ────────────────────────────────────────────────────
+    window.addEventListener('load', () => {
+      showSpinner(false);
+      clearMsg();
+      // User must pick date first
+      $('#dateSelector').style.display = 'block';
+    });
   </script>
 </body>
 </html>
