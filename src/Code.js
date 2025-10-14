@@ -158,7 +158,6 @@ function getTransportAppointments(targetDateStr) {
     } else {
       include = isTodayOrTomorrow_(dateObj);
     }
-    }
     if (!include) return;
 
     const first = S_(get(CFG.COLS.FIRST));
