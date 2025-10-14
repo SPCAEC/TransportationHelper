@@ -82,8 +82,8 @@
     // ─── Date Selection Logic ────────────────────────────────────
     function chooseDate(choice) {
       const now = new Date();
-      const tzOffsetMs = now.getTimezoneOffset() * 60000; // convert offset to ms
-      const localNow = new Date(now.getTime() - tzOffsetMs); // convert to local date
+      const tzOffsetMs = now.getTimezoneOffset() * 60000; // minutes → ms
+      const localNow = new Date(now.getTime() + tzOffsetMs); // ✅ ADD, not subtract
       let selectedLocal;
 
       if (choice === 'today') {
