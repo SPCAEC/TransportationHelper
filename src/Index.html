@@ -54,9 +54,12 @@
 
     // ─── UI Helpers ──────────────────────────────────────────────
     function setMsg(html, type) {
-      message.innerHTML = html; // allow real HTML (not just text)
-      message.className = 'msg ' + (type || '');
+      if (!message) return;
       message.style.display = 'block';
+      message.className = 'msg ' + (type || '');
+      message.innerHTML = html;
+      // Hide spinner if visible when message appears
+      showSpinner(false);
     }
     function clearMsg() {
       message.style.display = 'none';
