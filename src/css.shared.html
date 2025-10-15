@@ -10,6 +10,14 @@
     --font: system-ui, sans-serif;
     --text: #111827;
     --muted: #6b7280;
+
+    /* Emphasis tokens */
+    --bubble-bg: #f1f5f9;           /* slate-100-ish */
+    --bubble-border: #e2e8f0;       /* slate-200-ish */
+    --bubble-text: #0f172a;         /* slate-900-ish */
+    --phone-bg: #e0f2fe;            /* sky-100-ish */
+    --phone-border: #bae6fd;        /* sky-200-ish */
+    --phone-text: #0c4a6e;          /* sky-900-ish */
   }
 
   /* ─── Base Structure ─────────────────────────────────────── */
@@ -86,6 +94,13 @@
     margin: 2rem 0 1rem;
   }
 
+  /* Small icon helper (e.g., calendar) */
+  .icon {
+    display: inline-block;
+    vertical-align: -2px;
+    margin-right: 4px;
+  }
+
   /* ─── Message System ─────────────────────────────────────── */
   .msg {
     text-align: center;
@@ -140,6 +155,7 @@
     font-size: 0.9rem;
   }
 
+  /* Legacy phone box (kept for compatibility) */
   .phone-box {
     background: #f3f4f6;
     font-weight: bold;
@@ -150,6 +166,28 @@
     margin: 0.75rem 0;
     color: #111;
     border: 1px solid #e5e7eb;
+  }
+
+  /* ─── New: Bubbles for Address & Phone (Enhancement 2) ─────── */
+  .address-bubble,
+  .phone-bubble {
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    margin: 0.6rem 0;
+    line-height: 1.35;
+    border: 1px solid var(--bubble-border);
+    background: var(--bubble-bg);
+    color: var(--bubble-text);
+  }
+
+  /* Phone is even more prominent */
+  .phone-bubble {
+    font-weight: 800;
+    font-size: 1.25rem;
+    text-align: center;
+    border-color: var(--phone-border);
+    background: var(--phone-bg);
+    color: var(--phone-text);
   }
 
   /* ─── Form Inputs (calendar, text, etc.) ───────────────────── */
@@ -176,11 +214,20 @@
     justify-content: center;
   }
 
+  /* ─── Utilities ───────────────────────────────────────────── */
+  .hidden { display: none !important; }
+
   /* ─── Print Styles ────────────────────────────────────────── */
   @media print {
     body { background: #fff; padding: 0; }
     .app { box-shadow: none; padding: 0; }
     .actions, .msg, .btn, a.back, #dateSelector { display: none !important; }
     .card { margin: 0 0 1rem; page-break-inside: avoid; }
+    /* Keep bubbles readable in print */
+    .address-bubble, .phone-bubble {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      border-color: #cbd5e1;
+    }
   }
 </style>

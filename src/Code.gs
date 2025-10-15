@@ -15,6 +15,7 @@ const CFG = {
   INDIVIDUAL_PDFS_FOLDER_ID: '1z3XOvYJAcwpWlXddGHySMHy_BubYarlm',
   MERGED_PDFS_FOLDER_ID: '1e_NlS-TLwM4IuKmk3l6OVXXPRC7a43lc',
 
+  // Overridable via Script Property MERGE_API_URL
   MERGE_API_URL_FALLBACK: 'https://pdf-merge-service.onrender.com/merge',
 
   COLS: {
@@ -59,7 +60,7 @@ function doGet() {
     .evaluate()
     .setTitle('Transportation Helper')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-    .setSandboxMode(HtmlService.SandboxMode.IFRAME);  // <— this line fixes the null issue
+    .setSandboxMode(HtmlService.SandboxMode.IFRAME); // preserves prior null fix
 }
 
 /** Script Properties */
@@ -78,6 +79,7 @@ function getMergeApiUrl_() { return getScriptProp_('MERGE_API_URL', CFG.MERGE_AP
 /** Utils */
 function S_(v) { return (v === null || v === undefined) ? '' : String(v).trim(); }
 function joinNonEmpty_(parts, sep) { return parts.filter(p => S_(p)).join(sep); }
+function sanitizeName_(s) { return S_(s).replace(/[^\w\-. ]+/g, '_').slice(0, 80); }
 
 /** Parse date from:
  *  - a real Date object, or
@@ -102,7 +104,7 @@ function parseSheetDate_(val) {
   return isNaN(dt) ? null : dt;
 }
 
-/** Compare using TZ-safe yyyymmdd strings */
+/** Compare using TZ-safe yyyymmdd strings (compat fallback for no-date calls) */
 function isTodayOrTomorrow_(dt) {
   if (!(dt instanceof Date) || isNaN(dt)) return false;
   const tz = CFG.TZ;
@@ -120,10 +122,22 @@ function getStrictSheetByGid_(ss, gid) {
   throw new Error(`Sheet with GID ${gid} not found in ${CFG.SHEET_ID}`);
 }
 
-/** READ-ONLY: list appointments needing transport today/tomorrow */
+/** Server-side helpers for accurate dates (fixes timezone drift on client) */
+function getServerDate(offsetDays) {
+  const tz = CFG.TZ;
+  const base = new Date(new Date().getTime() + (offsetDays || 0) * 86400000);
+  return Utilities.formatDate(base, tz, 'yyyy-MM-dd');
+}
+function debugServerNow() {
+  return Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd HH:mm:ss z');
+}
+
+/**
+ * READ-ONLY: list appointments needing transport for a **specific date** (YYYY-MM-DD).
+ * If targetDateStr is falsy, preserves legacy behavior (today or tomorrow).
+ */
 function getTransportAppointments(targetDateStr) {
   const tz = CFG.TZ;
-  const targetDate = targetDateStr ? parseSheetDate_(targetDateStr) : null;
   const ss = SpreadsheetApp.openById(CFG.SHEET_ID);
   const sh = getStrictSheetByGid_(ss, CFG.SHEET_GID);
   const values = sh.getDataRange().getValues();
@@ -134,6 +148,13 @@ function getTransportAppointments(targetDateStr) {
   const colIndex = {};
   header.forEach((name, idx) => colIndex[name] = idx);
 
+  let selectedYMD = null;
+  if (targetDateStr) {
+    const [y, m, d] = targetDateStr.split('-').map(n => parseInt(n, 10));
+    const target = new Date(y, m - 1, d);
+    selectedYMD = Utilities.formatDate(target, tz, 'yyyyMMdd');
+  }
+
   const out = [];
 
   rows.forEach((r, i) => {
@@ -141,21 +162,16 @@ function getTransportAppointments(targetDateStr) {
     const apptStatus = S_(get(CFG.COLS.APPT_STATUS));
     const transNeeded = S_(get(CFG.COLS.TRANSPORT_NEEDED));
     const dateObj = parseSheetDate_(get(CFG.COLS.DATE));
-
     if (apptStatus !== 'Scheduled') return;
     if (transNeeded.toLowerCase() !== 'yes') return;
     if (!dateObj) return;
 
-    // Date filter logic
+    const rowYMD = Utilities.formatDate(dateObj, tz, 'yyyyMMdd');
     let include = false;
-    if (targetDateStr) {
-      // force targetDateStr (YYYY-MM-DD) into same TZ context
-      const [y, m, d] = targetDateStr.split('-').map(n => parseInt(n, 10));
-      const target = new Date(y, m - 1, d);
-      const sheetDate = Utilities.formatDate(dateObj, CFG.TZ, 'yyyyMMdd');
-      const selectedDate = Utilities.formatDate(target, CFG.TZ, 'yyyyMMdd');
-      include = (sheetDate === selectedDate);
+    if (selectedYMD) {
+      include = (rowYMD === selectedYMD);
     } else {
+      // legacy: today or tomorrow
       include = isTodayOrTomorrow_(dateObj);
     }
     if (!include) return;
@@ -185,7 +201,7 @@ function getTransportAppointments(targetDateStr) {
     const color = S_(get(CFG.COLS.COLOR));
     const ageSexColor = joinNonEmpty_([age, sex, color], ' • ');
 
-    const dateStr = Utilities.formatDate(dateObj, tz, 'MMMM d, yyyy');
+    const dateStr = Utilities.formatDate(dateObj, tz, 'MM/dd/yyyy'); // enhancement: mm/dd/yyyy
 
     out.push({
       rowIndex: i + 2,
@@ -203,16 +219,19 @@ function getTransportAppointments(targetDateStr) {
     });
   });
 
-  Logger.log('getTransportAppointments → %s rows', out.length);
+  Logger.log('getTransportAppointments(%s) → %s rows', targetDateStr || '(today|tomorrow)', out.length);
   return JSON.parse(JSON.stringify(out));
 }
 
-/** Create Transportation Contracts (sheet is never modified) */
-function createTransportContracts() {
+/**
+ * Create Transportation Contracts for the **selected date only** (YYYY-MM-DD).
+ * If called without a date, preserves legacy behavior (today/tomorrow).
+ */
+function createTransportContracts(targetDateStr) {
   const tz = CFG.TZ;
-  const appts = getTransportAppointments();
+  const appts = getTransportAppointments(targetDateStr);
   if (!appts.length) {
-    return { ok: false, message: 'No transport appointments for today/tomorrow.', individuals: [], merged: null };
+    return { ok: false, message: 'No transport appointments for the selected date.', individuals: [], merged: null };
   }
 
   const tempFolder   = DriveApp.getFolderById(CFG.TEMP_FOLDER_ID);
@@ -221,37 +240,56 @@ function createTransportContracts() {
   const templateFile = DriveApp.getFileById(CFG.SLIDES_TEMPLATE_ID);
 
   const individualPdfs = [];
-  const tempClones = [];
+  const createdNames = [];
 
   try {
-    appts.forEach(a => {
-      const cloneName = `TransportContract_${sanitizeName_(a.name)}_${Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss')}`;
+    appts.forEach((a, idx) => {
+      const cloneName = `TransportContract_${sanitizeName_(a.name)}_${Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss')}_${idx+1}`;
       const clone = templateFile.makeCopy(cloneName, tempFolder);
-      tempClones.push(clone);
-
       const pres = SlidesApp.openById(clone.getId());
-      const map = {};
-      map[CFG.PLACEHOLDERS.DATE]          = a.date || '';
-      map[CFG.PLACEHOLDERS.NAME]          = a.name || '';
-      map[CFG.PLACEHOLDERS.ADDRESS]       = a.address1 || '';
-      map[CFG.PLACEHOLDERS.ADDRESS2]      = a.address2 || '';
-      map[CFG.PLACEHOLDERS.PHONE]         = a.phone || '';
-      map[CFG.PLACEHOLDERS.EMAIL]         = a.email || '';
-      map[CFG.PLACEHOLDERS.PET_NAME]      = a.petName || '';
-      map[CFG.PLACEHOLDERS.SPECIES_BREED] = a.speciesBreed || '';
-      map[CFG.PLACEHOLDERS.AGE_SEX_COLOR] = a.ageSexColor || '';
-      map[CFG.PLACEHOLDERS.APPT_TYPE]     = a.apptType || '';
-      replaceInPresentation_(pres, map);
 
-      const pdfBlob = DriveApp.getFileById(clone.getId()).getAs(MimeType.PDF);
-      const pdfName = `${cloneName}.pdf`;
-      const pdfFile = indivFolder.createFile(pdfBlob).setName(pdfName);
-      individualPdfs.push({ id: pdfFile.getId(), name: pdfName, url: pdfFile.getUrl() });
+      // Reliable presentation-level replacement
+      const map = {};
+      map[CFG.PLACEHOLDERS.DATE]           = a.date || '';
+      map[CFG.PLACEHOLDERS.NAME]           = a.name || '';
+      map[CFG.PLACEHOLDERS.ADDRESS]        = a.address1 || '';
+      map[CFG.PLACEHOLDERS.ADDRESS2]       = a.address2 || '';
+      map[CFG.PLACEHOLDERS.PHONE]          = a.phone || '';
+      map[CFG.PLACEHOLDERS.EMAIL]          = a.email || '';
+      map[CFG.PLACEHOLDERS.PET_NAME]       = a.petName || '';
+      map[CFG.PLACEHOLDERS.SPECIES_BREED]  = a.speciesBreed || '';
+      map[CFG.PLACEHOLDERS.AGE_SEX_COLOR]  = a.ageSexColor || '';
+      map[CFG.PLACEHOLDERS.APPT_TYPE]      = a.apptType || '';
+
+      replaceInPresentation_(pres, map);   // replaces + saveAndClose inside
+      Utilities.sleep(400);                // give Drive a breath
+
+      const pdfBlob = clone.getAs(MimeType.PDF); // export after saveAndClose
+      const size = pdfBlob.getBytes().length;
+      if (size < 1000) {
+        Logger.log('WARNING: Skipping zero/very small PDF for %s (size=%s bytes)', cloneName, size);
+        try { clone.setTrashed(true); } catch (e) {}
+        return; // skip pushing invalid file
+      }
+
+      const pdfFile = indivFolder.createFile(pdfBlob).setName(`${cloneName}.pdf`);
+      individualPdfs.push({ id: pdfFile.getId(), name: pdfFile.getName(), url: pdfFile.getUrl(), size });
+      createdNames.push(pdfFile.getName());
+
+      // Trash the temp Slides clone after successful export
+      try { clone.setTrashed(true); } catch (e) { Logger.log('Temp clone trash fail %s → %s', clone.getId(), e); }
     });
 
-    tempClones.forEach(f => { try { f.setTrashed(true); } catch (e) { Logger.log('Temp clone trash fail %s → %s', f.getId(), e); } });
+    Logger.log('Created %s valid individual PDFs: %s', individualPdfs.length, createdNames.join(', '));
 
-    const outputName = `Transportation_Contracts_${Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss')}.pdf`;
+    if (!individualPdfs.length) {
+      return { ok: false, message: 'All generated PDFs were empty or invalid. Please check the template placeholders.', individuals: [], merged: null };
+    }
+
+    // Merge PDFs via Render (wait a beat for Drive to finalize)
+    Utilities.sleep(1200);
+    const baseName = targetDateStr ? targetDateStr.replace(/-/g, '') : Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss');
+    const outputName = `Transportation_Contracts_${baseName}.pdf`;
     const merged = mergePDFs_(individualPdfs, outputName);
 
     let mergedFileMeta = null;
@@ -261,27 +299,44 @@ function createTransportContracts() {
       mergedFileMeta = { id: mergedFile.getId(), name: mergedFile.getName(), url: mergedFile.getUrl() };
     } else if (merged && merged.fileUrl) {
       mergedFileMeta = { id: null, name: outputName, url: merged.fileUrl };
+    } else {
+      return { ok: false, message: 'Merge service returned no file.', individuals: individualPdfs, merged: null };
     }
 
-    return { ok: true, count: appts.length, individuals: individualPdfs, merged: mergedFileMeta };
+    return { ok: true, count: individualPdfs.length, individuals: individualPdfs, merged: mergedFileMeta };
 
   } catch (err) {
-    Logger.log('createTransportContracts error: %s', err.stack || err);
+    Logger.log('createTransportContracts(%s) error: %s', targetDateStr, err.stack || err);
     return { ok: false, message: 'Error creating transportation contracts. See logs.', error: String(err), individuals: individualPdfs, merged: null };
   }
 }
 
-/** Replace placeholders across all slides in a presentation (clone only) */
+/** Replace placeholders across entire presentation then save (flushes edits) */
 function replaceInPresentation_(presentation, map) {
-  const slides = presentation.getSlides();
-  Object.keys(map).forEach(needle => {
-    const value = map[needle];
-    slides.forEach(slide => {
-      try { slide.replaceAllText(needle, value); }
-      catch (e) { Logger.log('replaceAllText error on %s → %s', needle, e); }
+  try {
+    // presentation.replaceAllText is powerful but some templates need slide-level fallback
+    Object.keys(map).forEach(needle => {
+      const value = (map[needle] == null) ? '' : String(map[needle]);
+      try { presentation.replaceAllText(needle, value); }
+      catch (e) { Logger.log('presentation.replaceAllText error on %s → %s', needle, e); }
     });
-  });
-  SlidesApp.flush();
+
+    // As a safety net, also run per-slide replacement for any stubborn elements
+    const slides = presentation.getSlides();
+    slides.forEach(slide => {
+      Object.keys(map).forEach(needle => {
+        const value = (map[needle] == null) ? '' : String(map[needle]);
+        try { slide.replaceAllText(needle, value); }
+        catch (e) { /* ignore individual element errors */ }
+      });
+    });
+
+  } catch (e) {
+    Logger.log('replaceInPresentation_ global error: %s', e);
+  } finally {
+    // 🔑 Ensure edits are committed before export
+    try { presentation.saveAndClose(); } catch (e) { Logger.log('saveAndClose error: %s', e); }
+  }
 }
 
 /** Merge PDFs via Render service */
@@ -291,8 +346,17 @@ function mergePDFs_(pdfs, outputName) {
 
   const files = pdfs.map(p => {
     const blob = DriveApp.getFileById(p.id).getBlob();
-    return { name: p.name || (p.id + '.pdf'), contentBase64: Utilities.base64Encode(blob.getBytes()) };
-  });
+    const bytes = blob.getBytes();
+    if (!bytes || !bytes.length) {
+      Logger.log('WARNING: Skipping empty blob for %s', p.name);
+      return null;
+    }
+    return { name: p.name || (p.id + '.pdf'), contentBase64: Utilities.base64Encode(bytes) };
+  }).filter(Boolean);
+
+  if (!files.length) {
+    throw new Error('No valid PDFs to merge.');
+  }
 
   const payload = JSON.stringify({ outputName: outputName || 'merged.pdf', files });
 
@@ -311,14 +375,13 @@ function mergePDFs_(pdfs, outputName) {
     try { return JSON.parse(text); }
     catch (_) { throw new Error('Invalid JSON from merge API'); }
   }
-  throw new Error('Merge API error: ' + code + ' — ' + text);
+  throw new Error('Merge API error: ' + code + (text ? ' — ' + text : ''));
 }
 
-/** Filename sanitizer */
-function sanitizeName_(s) { return S_(s).replace(/[^\w\-. ]+/g, '_').slice(0, 80); }
-
+/** Test helper(s) */
 function testTransport() {
-  const data = getTransportAppointments();
+  const today = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
+  const data = getTransportAppointments(today);
   Logger.log(JSON.stringify(data, null, 2));
   return data;
 }

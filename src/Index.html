@@ -7,16 +7,19 @@
 </head>
 <body>
   <div class="app">
-    <a href="#" id="hubLink" class="back">&larr; Back to Service Hub</a>
+    <!-- Navigation Link -->
+    <a href="#" id="navLink" class="back">&larr; Back to Service Hub</a>
     <h1>Transportation Helper</h1>
 
     <!-- ─── Date Selector ─────────────────────────────────────────── -->
     <div id="dateSelector" class="card" style="text-align:center;">
       <h3>Select Date</h3>
       <div class="row" style="display:flex; gap:0.5rem; justify-content:center; flex-wrap:wrap;">
-        <button class="btn secondary" onclick="chooseDate('today')">Today</button>
-        <button class="btn secondary" onclick="chooseDate('tomorrow')">Tomorrow</button>
-        <button class="btn secondary" onclick="showCalendar()">Choose Date...</button>
+        <button class="btn secondary" onclick="selectServerDate(0)">Today</button>
+        <button class="btn secondary" onclick="selectServerDate(1)">Tomorrow</button>
+        <button class="btn secondary" onclick="showCalendar()">
+          <span class="icon" style="margin-right:4px;">📅</span>Choose Date...
+        </button>
       </div>
       <div id="calendarContainer" style="margin-top:1rem; display:none;">
         <input type="date" id="customDate" style="max-width:200px;">
@@ -29,9 +32,9 @@
       <div class="spinner" id="spinner" style="display:none;"></div>
     </div>
 
-    <!-- ─── Actions ───────────────────────────────────────────────── -->
-    <div class="actions">
-      <button id="createBtn" class="btn" disabled>Create Transportation Contracts</button>
+    <!-- ─── Actions (hidden by default) ─────────────────────────────── -->
+    <div class="actions" id="actions" style="display:none;">
+      <button id="createBtn" class="btn">Create Transportation Contracts</button>
     </div>
 
     <!-- ─── Messages ──────────────────────────────────────────────── -->
@@ -44,8 +47,10 @@
     const spinner = $('#spinner');
     const message = $('#message');
     const createBtn = $('#createBtn');
-    const hubLink = $('#hubLink');
+    const navLink = $('#navLink');
+    const actions = $('#actions');
     let selectedDate = null;
+    let mainHubUrl = '';
 
     // ─── UI Helpers ──────────────────────────────────────────────
     function setMsg(text, type) {
@@ -65,39 +70,54 @@
     // ─── Hub Link ────────────────────────────────────────────────
     google.script.run
       .withSuccessHandler(link => {
-        if (link) {
-          hubLink.addEventListener('click', e => {
-            e.preventDefault();
-            window.open(link, '_top'); // open in same tab (use '_blank' for new tab)
-          });
-          hubLink.style.pointerEvents = 'auto';
-          hubLink.style.opacity = 1;
-        } else {
-          hubLink.style.pointerEvents = 'none';
-          hubLink.style.opacity = 0.6;
-        }
+        mainHubUrl = link || '';
+        updateNavLink('hub');
       })
       .getMainHubLink();
 
-    // ─── Date Selection Logic ────────────────────────────────────
-    function chooseDate(choice) {
-      const now = new Date();
-      const tzOffsetMs = now.getTimezoneOffset() * 60000; // minutes → ms
-      const localNow = new Date(now.getTime() + tzOffsetMs); // ✅ ADD, not subtract
-      let selectedLocal;
-
-      if (choice === 'today') {
-        selectedLocal = localNow;
-      } else if (choice === 'tomorrow') {
-        selectedLocal = new Date(localNow.getTime() + 86400000);
+    function updateNavLink(mode) {
+      if (mode === 'hub') {
+        navLink.textContent = '← Back to Service Hub';
+        navLink.onclick = e => {
+          e.preventDefault();
+          if (mainHubUrl) window.open(mainHubUrl, '_top');
+        };
+      } else if (mode === 'home') {
+        navLink.textContent = '← Back';
+        navLink.onclick = e => {
+          e.preventDefault();
+          showHome();
+        };
       }
+    }
 
-      selectedDate = selectedLocal.toISOString().split('T')[0];
-      console.log('Chosen local date:', selectedDate);
+    // ─── Home Screen ─────────────────────────────────────────────
+    function showHome() {
+      $('#dateSelector').style.display = 'block';
+      $('#calendarContainer').style.display = 'none';
+      content.innerHTML = '';
+      clearMsg();
+      showSpinner(false);
+      actions.style.display = 'none';
+      updateNavLink('hub');
+    }
 
-      $('#dateSelector').style.display = 'none';
-      createBtn.disabled = false;
-      loadAppointments(selectedDate);
+    // ─── Date Selection via Server (accurate) ─────────────────────
+    function selectServerDate(offsetDays) {
+      clearMsg();
+      showSpinner(true);
+      google.script.run
+        .withSuccessHandler(serverDate => {
+          showSpinner(false);
+          if (!serverDate) return setMsg('Unable to determine server date.', 'error');
+          selectedDate = serverDate;
+          proceedToLoadAppointments();
+        })
+        .withFailureHandler(err => {
+          showSpinner(false);
+          setMsg('Error retrieving date: ' + err.message, 'error');
+        })
+        .getServerDate(offsetDays);
     }
 
     function showCalendar() {
@@ -107,34 +127,25 @@
     function pickCustom() {
       const val = $('#customDate').value;
       if (!val) return alert('Please pick a date');
-      // ensure it's exactly YYYY-MM-DD format
-      const parts = val.split('-');
-      if (parts.length === 3) {
-        const [y, m, d] = parts.map(n => parseInt(n, 10));
-        const safeDate = new Date(y, m - 1, d);
-        // normalize to local YYYY-MM-DD
-        const tzOffsetMs = safeDate.getTimezoneOffset() * 60000;
-        const localDate = new Date(safeDate.getTime() + tzOffsetMs);
-        selectedDate = localDate.toISOString().split('T')[0];
-      } else {
-        selectedDate = val;
-      }
-
-      console.log('Chosen custom date:', selectedDate);
-      $('#dateSelector').style.display = 'none';
-      createBtn.disabled = false;
-      loadAppointments(selectedDate);
+      selectedDate = val;
+      proceedToLoadAppointments();
     }
 
     // ─── Load Appointments ───────────────────────────────────────
+    function proceedToLoadAppointments() {
+      $('#dateSelector').style.display = 'none';
+      updateNavLink('home');
+      actions.style.display = 'none'; // hide while loading
+      loadAppointments(selectedDate);
+    }
+
     function loadAppointments(dateStr) {
       showSpinner(true);
       clearMsg();
       google.script.run
         .withSuccessHandler(appts => {
-          console.log('Appointments from backend:', appts);
           showSpinner(false);
-          renderAppointments(appts);
+          renderAppointments(appts || []);
         })
         .withFailureHandler(err => {
           showSpinner(false);
@@ -152,8 +163,9 @@
 
     function renderAppointments(appts) {
       content.innerHTML = '';
-      if (!appts || !appts.length) {
+      if (!appts.length) {
         content.innerHTML = '<p style="text-align:center;">No transport appointments found for this date.</p>';
+        actions.style.display = 'none';
         return;
       }
 
@@ -163,8 +175,8 @@
         div.innerHTML = `
           <h2>${esc(a.petName || 'Unnamed Pet')}</h2>
           <div class="field"><label>Client:</label><div>${esc(a.name)}</div></div>
-          <div class="field"><label>Address:</label><div>${esc(a.address1)}<br>${esc(a.address2)}</div></div>
-          <div class="phone-box">${esc(a.phone || '(no phone)')}</div>
+          <div class="address-bubble">${esc(a.address1)}<br>${esc(a.address2)}</div>
+          <div class="phone-bubble">${esc(a.phone || '(no phone)')}</div>
           <div class="field"><label>Pet Info:</label><div>${esc(a.speciesBreed || '')}</div></div>
           <div class="field"><label>Details:</label><div>${esc(a.ageSexColor || '')}</div></div>
           <div class="field"><label>Appointment Type:</label><div><em>${esc(a.apptType || '')}</em></div></div>
@@ -172,6 +184,10 @@
         `;
         content.appendChild(div);
       });
+
+      // show the Create button when appointments exist
+      actions.style.display = 'block';
+      createBtn.disabled = false;
     }
 
     // ─── Create Transportation Contracts ─────────────────────────
@@ -204,16 +220,11 @@
           createBtn.textContent = 'Create Transportation Contracts';
           setMsg('Error: ' + err.message, 'error');
         })
-        .createTransportContracts();
+        .createTransportContracts(selectedDate);
     });
 
     // ─── Init ────────────────────────────────────────────────────
-    window.addEventListener('load', () => {
-      showSpinner(false);
-      clearMsg();
-      // User must pick date first
-      $('#dateSelector').style.display = 'block';
-    });
+    window.addEventListener('load', showHome);
   </script>
 </body>
 </html>
