@@ -340,18 +340,29 @@ function replaceInPresentation_(presentation, map) {
 }
 
 /** Merge PDFs via Render service */
+/** Merge PDFs via Render service */
 function mergePDFs_(pdfs, outputName) {
   const url = getMergeApiUrl_();
   Logger.log('Merging %s PDFs via %s', pdfs.length, url);
 
   const files = pdfs.map(p => {
-    const blob = DriveApp.getFileById(p.id).getBlob();
-    const bytes = blob.getBytes();
-    if (!bytes || !bytes.length) {
-      Logger.log('WARNING: Skipping empty blob for %s', p.name);
+    try {
+      const blob = DriveApp.getFileById(p.id).getBlob();
+      const bytes = blob.getBytes();
+      if (!bytes || !bytes.length) {
+        Logger.log('⚠️ Skipping invalid or empty blob for %s', p.name);
+        return null;
+      }
+      const base64 = Utilities.base64Encode(bytes);
+      if (!base64) {
+        Logger.log('⚠️ Skipping PDF with missing base64 data: %s', p.name);
+        return null;
+      }
+      return { name: p.name || (p.id + '.pdf'), contentBase64: base64 };
+    } catch (err) {
+      Logger.log('⚠️ Error reading blob for %s: %s', p.name, err);
       return null;
     }
-    return { name: p.name || (p.id + '.pdf'), contentBase64: Utilities.base64Encode(bytes) };
   }).filter(Boolean);
 
   if (!files.length) {
@@ -359,6 +370,7 @@ function mergePDFs_(pdfs, outputName) {
   }
 
   const payload = JSON.stringify({ outputName: outputName || 'merged.pdf', files });
+  Logger.log('Payload prepared: %s files', files.length);
 
   const res = UrlFetchApp.fetch(url, {
     method: 'post',
@@ -375,7 +387,8 @@ function mergePDFs_(pdfs, outputName) {
     try { return JSON.parse(text); }
     catch (_) { throw new Error('Invalid JSON from merge API'); }
   }
-  throw new Error('Merge API error: ' + code + (text ? ' — ' + text : ''));
+
+  throw new Error('Merge API error: ' + code + ' — ' + text);
 }
 
 /** Test helper(s) */
