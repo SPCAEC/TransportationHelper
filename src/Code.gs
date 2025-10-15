@@ -398,3 +398,13 @@ function testTransport() {
   Logger.log(JSON.stringify(data, null, 2));
   return data;
 }
+function pingMergeService() {
+  const url = 'https://pdf-merge-service.onrender.com/';
+  try {
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const code = res.getResponseCode();
+    Logger.log('Pinged merge service → %s', code);
+  } catch (err) {
+    Logger.log('Ping error: %s', err);
+  }
+}

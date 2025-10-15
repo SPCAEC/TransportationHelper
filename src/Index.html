@@ -208,8 +208,16 @@
           }
 
           if (res.merged && res.merged.url) {
-            const link = `<a href="${res.merged.url}" target="_blank">Download PDF</a>`;
-            setMsg(`Created ${res.count} contracts successfully. ${link}`, 'success');
+            const fileUrl = res.merged.url;
+            const linkHtml = `
+              <div>
+                <strong>Transportation contracts created successfully!</strong><br>
+                <a href="${fileUrl}" target="_blank" class="btn" download>⬇️ Download Forms</a>
+              </div>
+            `;
+            setMsg(linkHtml, 'success');
+            // Auto-open the merged PDF in a new tab
+            window.open(fileUrl, '_blank');
           } else {
             setMsg('Created but merge file missing or unavailable.', 'error');
           }
