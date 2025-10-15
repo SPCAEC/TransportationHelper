@@ -107,8 +107,8 @@
 
     // ─── Date Selection via Server (accurate) ─────────────────────
     function selectServerDate(offsetDays) {
-      clearMsg();
       showSpinner(true);
+      clearMsg();
       google.script.run
         .withSuccessHandler(serverDate => {
           showSpinner(false);
@@ -128,15 +128,16 @@
     }
 
     function pickCustom() {
+      showSpinner(true);
       const val = $('#customDate').value;
       if (!val) return alert('Please pick a date');
       selectedDate = val;
-      showSpinner(true);
       proceedToLoadAppointments();
     }
 
     // ─── Load Appointments ───────────────────────────────────────
     function proceedToLoadAppointments() {
+      showSpinner(true);
       $('#dateSelector').style.display = 'none';
       updateNavLink('home');
       actions.style.display = 'none'; // hide while loading
