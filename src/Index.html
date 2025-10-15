@@ -53,8 +53,8 @@
     let mainHubUrl = '';
 
     // ─── UI Helpers ──────────────────────────────────────────────
-    function setMsg(text, type) {
-      message.textContent = text;
+    function setMsg(html, type) {
+      message.innerHTML = html; // allow real HTML (not just text)
       message.className = 'msg ' + (type || '');
       message.style.display = 'block';
     }
@@ -211,12 +211,12 @@
             const fileUrl = res.merged.url;
             const linkHtml = `
               <div>
-                <strong>Transportation contracts created successfully!</strong><br>
+                <strong>Transportation contracts created successfully!</strong><br><br>
                 <a href="${fileUrl}" target="_blank" class="btn" download>⬇️ Download Forms</a>
               </div>
             `;
             setMsg(linkHtml, 'success');
-            // Auto-open the merged PDF in a new tab
+            // Automatically open the merged PDF in a new tab
             window.open(fileUrl, '_blank');
           } else {
             setMsg('Created but merge file missing or unavailable.', 'error');
